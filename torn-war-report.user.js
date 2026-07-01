@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn War Report
 // @namespace    https://github.com/eugene-torn-scripts/torn-war-report
-// @version      1.0.0
+// @version      1.0.1
 // @description  Per-member ranked-war report for your faction — war hits, outside hits, respect, and how many times each member was hit back. Pick any of your faction's finished wars.
 // @author       lannav
 // @match        https://www.torn.com/*
@@ -37,7 +37,7 @@
     //  CONSTANTS & CONFIG
     // ════════════════════════════════════════════════════════════
 
-    const VERSION = "1.0.0";
+    const VERSION = "1.0.1";
 
     const API_BASE = "https://api.torn.com/v2";
     // Pace requests well under Torn's 100/min ceiling. A full war is many
@@ -613,6 +613,7 @@
             this.wars = null;
             this.selectedWarId = null;
             this.result = null;       // aggregated report currently shown
+            this.genError = null;     // last generate() failure to surface
             this.generating = false;
             this.sortBy = "total";
             this.sortDir = "desc";
@@ -854,6 +855,23 @@
             body.querySelector("#twr-gen").addEventListener("click", () => this.generate());
 
             if (this.result) this._renderResult(body.querySelector("#twr-result"));
+            else if (this.genError) this._renderGenError(body.querySelector("#twr-result"));
+        }
+
+        _renderGenError(host) {
+            if (this.genError === "access") {
+                host.innerHTML = `<div class="twr-warn" style="color:#e0a0a0;background:#2a1616;border-color:#5a2020">
+                    <b>Error 7 — your key can't read faction attacks.</b><br>
+                    This report needs a <b>Limited Access</b> key (or higher) whose faction position
+                    has <b>API access</b> enabled. A public/minimal key can list wars but can't read
+                    the attack log. Ask your faction leader to enable API access for your position,
+                    or paste a key that already has it in <b>Settings → Change key</b>.
+                </div>`;
+            } else {
+                host.innerHTML = `<div class="twr-warn" style="color:#e0a0a0;background:#2a1616;border-color:#5a2020">
+                    Failed to build the report: ${escapeHtml(this.genError)}
+                </div>`;
+            }
         }
 
         async generate() {
@@ -862,6 +880,7 @@
             if (!war) return;
             this.generating = true;
             this.result = null;
+            this.genError = null;
             this.render();
             const t0 = Date.now();
             try {
@@ -883,8 +902,10 @@
                 this.setStatus(`Done — ${fmt.num(attacks.length)} attacks in ${this.result._elapsed}s.`);
             } catch (e) {
                 if (e.code === NO_ACCESS_ERROR_CODE) {
+                    this.genError = "access";
                     this.setStatus("Key lacks faction API access (error 7).");
                 } else {
+                    this.genError = e.message;
                     this.setStatus(`Failed: ${e.message}`);
                 }
             } finally {
