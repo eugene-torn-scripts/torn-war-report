@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn War Report
 // @namespace    https://github.com/eugene-torn-scripts/torn-war-report
-// @version      1.1.0
+// @version      1.1.1
 // @description  Per-member ranked-war report for your faction — war hits, outside hits, respect, and how many times each member was hit back. Pick any of your faction's finished wars.
 // @author       lannav
 // @match        https://www.torn.com/*
@@ -9,6 +9,8 @@
 // @grant        unsafeWindow
 // @connect      api.torn.com
 // @license      GPL-3.0-or-later
+// @downloadURL  https://update.greasyfork.org/scripts/585104/Torn%20War%20Report.user.js
+// @updateURL    https://update.greasyfork.org/scripts/585104/Torn%20War%20Report.meta.js
 // ==/UserScript==
 
 /*
@@ -37,7 +39,7 @@
     //  CONSTANTS & CONFIG
     // ════════════════════════════════════════════════════════════
 
-    const VERSION = "1.1.0";
+    const VERSION = "1.1.1";
 
     const API_BASE = "https://api.torn.com/v2";
     // Pace requests well under Torn's 100/min ceiling. A full war is many
