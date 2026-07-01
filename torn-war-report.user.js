@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn War Report
 // @namespace    https://github.com/eugene-torn-scripts/torn-war-report
-// @version      1.0.1
+// @version      1.1.0
 // @description  Per-member ranked-war report for your faction — war hits, outside hits, respect, and how many times each member was hit back. Pick any of your faction's finished wars.
 // @author       lannav
 // @match        https://www.torn.com/*
@@ -37,7 +37,7 @@
     //  CONSTANTS & CONFIG
     // ════════════════════════════════════════════════════════════
 
-    const VERSION = "1.0.1";
+    const VERSION = "1.1.0";
 
     const API_BASE = "https://api.torn.com/v2";
     // Pace requests well under Torn's 100/min ceiling. A full war is many
@@ -63,9 +63,6 @@
     const LS = {
         apiKey: "twr_apiKey",
     };
-    // Other eugene-scripts store a key too — reuse it so the user only
-    // pastes once across the whole script family.
-    const SHARED_KEY_LS = ["spa_apiKey", "fat_apiKey", "tat_apiKey"];
 
     const IS_PDA = typeof PDA_httpGet === "function";
     const GM_XHR = (typeof GM_xmlhttpRequest !== "undefined") ? GM_xmlhttpRequest : null;
@@ -124,12 +121,10 @@
             const PDA_KEY = "###PDA-APIKEY###";
             const PLACEHOLDER = "###" + "PDA-APIKEY" + "###";
             if (PDA_KEY !== PLACEHOLDER && /^[A-Za-z0-9]{16}$/.test(PDA_KEY)) return PDA_KEY;
+            // Only this script's own key — don't borrow other eugene-scripts'
+            // keys, they may be public-scope and can't read the attack log.
             const own = (localStorage.getItem(LS.apiKey) || "").trim();
             if (/^[A-Za-z0-9]{16}$/.test(own)) return own;
-            for (const k of SHARED_KEY_LS) {
-                const v = (localStorage.getItem(k) || "").trim();
-                if (/^[A-Za-z0-9]{16}$/.test(v)) return v;
-            }
             return "";
         },
         save(key) {
