@@ -59,6 +59,7 @@ Get a key at **Settings → API** on torn.com. The key is stored only in your br
 
 - **Your faction only.** Torn only exposes your own faction's attack log. For the **enemy** you get a totals-only summary (attacks + score per member) from the official report — their per-attack detail isn't readable via the API.
 - **Finished wars only.** Ongoing wars are hidden — they have no final report and only a partial log.
+- **About the last year only.** Torn keeps roughly the last **365 days** of the faction attack log. Wars older than that return an empty log and can't be rebuilt into a report, so the picker only lists wars recent enough to fetch. The official score summary still exists for older wars, but the per-member hit/hit-back detail is gone.
 - **A full war is slow.** The attack log is read in pages of 100, paced to stay under Torn's 100-requests-per-minute ceiling. A busy war is a few thousand attacks (~30 pages, roughly 20–40 seconds). If Torn rate-limits (error 5) the fetch pauses 60 seconds with a visible countdown and resumes exactly where it stopped. Keep the panel open until it finishes.
 - **War vs outside** relies on Torn's `is_ranked_war` flag. It can be off by one or two attacks at the war boundary compared to the official tally (interrupted / assist edge cases).
 

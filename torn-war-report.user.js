@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn War Report
 // @namespace    https://github.com/eugene-torn-scripts/torn-war-report
-// @version      1.1.1
+// @version      1.2.0
 // @description  Per-member ranked-war report for your faction — war hits, outside hits, respect, and how many times each member was hit back. Pick any of your faction's finished wars.
 // @author       lannav
 // @match        https://www.torn.com/*
@@ -39,7 +39,7 @@
     //  CONSTANTS & CONFIG
     // ════════════════════════════════════════════════════════════
 
-    const VERSION = "1.1.1";
+    const VERSION = "1.2.0";
 
     const API_BASE = "https://api.torn.com/v2";
     // Pace requests well under Torn's 100/min ceiling. A full war is many
@@ -51,6 +51,11 @@
     // (or the faction resource isn't readable for this member's position).
     const NO_ACCESS_ERROR_CODE = 7;
     const ATTACKS_PAGE_LIMIT = 100;
+    // Torn keeps roughly the last year of the faction attack log — older wars
+    // return an empty log (verified: ~368 days = empty, ~355 days = present).
+    // Wars started before this window can't produce a full report, so they're
+    // hidden from the picker. A small margin under 365 keeps boundary wars out.
+    const ATTACK_RETENTION_DAYS = 360;
     // Hard cap so a runaway cursor can never loop forever. A very long war
     // is a few hundred pages at most.
     const MAX_ATTACK_PAGES = 600;
@@ -238,8 +243,10 @@
         async loadWars() {
             const our = await this.loadOurFaction();
             const d = await this.api.get("/faction/rankedwars", { limit: 100, sort: "DESC" });
+            const cutoff = Math.floor(Date.now() / 1000) - ATTACK_RETENTION_DAYS * 86400;
             const wars = (d.rankedwars || [])
                 .filter((w) => w.end && w.end > 0)
+                .filter((w) => w.start >= cutoff)
                 .map((w) => {
                     const enemy = (w.factions || []).find((f) => f.id !== our.id) || {};
                     const outcome = w.winner == null ? "draw"
@@ -856,6 +863,14 @@
         }
 
         _renderGenError(host) {
+            if (this.genError === "expired") {
+                host.innerHTML = `<div class="twr-warn">
+                    <b>No attack log available for this war.</b><br>
+                    Torn keeps only about the last year of the faction attack log, so this war's
+                    per-member detail can't be rebuilt. Pick a more recent war.
+                </div>`;
+                return;
+            }
             if (this.genError === "access") {
                 host.innerHTML = `<div class="twr-warn" style="color:#e0a0a0;background:#2a1616;border-color:#5a2020">
                     <b>Error 7 — your key can't read faction attacks.</b><br>
@@ -893,6 +908,11 @@
                     this.setStatus(`Page ${page} · ${fmt.num(total)} attacks…`);
                 });
 
+                if (attacks.length === 0) {
+                    this.genError = "expired";
+                    this.setStatus("No attack log for this war.");
+                    return;
+                }
                 this.result = this.svc.aggregate(report, attacks, this.svc.ourFaction.id);
                 this.result._attackCount = attacks.length;
                 this.result._elapsed = Math.round((Date.now() - t0) / 1000);
