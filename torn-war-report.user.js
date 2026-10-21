@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Torn War Report
 // @namespace    https://github.com/eugene-torn-scripts/torn-war-report
-// @version      1.2.0
-// @description  Per-member ranked-war report for your faction — war hits, outside hits, respect, and how many times each member was hit back. Pick any of your faction's finished wars.
+// @version      1.3.0
+// @description  Per-member ranked-war report for your faction — war hits, outside hits, respect, own-faction (turtle) hits, and how many times each member was hit back. Pick any of your faction's finished wars.
 // @author       lannav
 // @match        https://www.torn.com/*
 // @grant        GM_xmlhttpRequest
@@ -39,7 +39,7 @@
     //  CONSTANTS & CONFIG
     // ════════════════════════════════════════════════════════════
 
-    const VERSION = "1.2.0";
+    const VERSION = "1.3.0";
 
     const API_BASE = "https://api.torn.com/v2";
     // Pace requests well under Torn's 100/min ceiling. A full war is many
@@ -308,6 +308,7 @@
                         id, name: name || String(id), level: level || 0,
                         warHits: 0, warAtt: 0, outHits: 0, outAtt: 0, respect: 0,
                         faced: 0, hitBack: 0, defended: 0,
+                        ownHits: 0, ownHosps: 0,
                     };
                     rows.set(id, r);
                 }
@@ -324,8 +325,17 @@
                 const atk = a.attacker;
                 const def = a.defender;
                 const win = WIN_RESULTS.has(a.result);
+                const atkOurs = !!(atk && atk.faction && atk.faction.id === ourFactionId);
+                const defOurs = !!(def && def.faction && def.faction.id === ourFactionId);
 
-                if (atk && atk.faction && atk.faction.id === ourFactionId) {
+                if (atkOurs && defOurs) {
+                    const r = row(atk.id, atk.name, atk.level);
+                    if (win) r.ownHits++;
+                    if (a.result === "Hospitalized") r.ownHosps++;
+                    continue;
+                }
+
+                if (atkOurs) {
                     const r = row(atk.id, atk.name, atk.level);
                     if (a.is_ranked_war) {
                         r.warAtt++;
@@ -337,7 +347,7 @@
                     if (win && typeof a.respect_gain === "number") r.respect += a.respect_gain;
                 }
 
-                if (def && def.faction && def.faction.id === ourFactionId) {
+                if (defOurs) {
                     const r = row(def.id, def.name, def.level);
                     r.faced++;
                     if (win) r.hitBack++;   // enemy attacker succeeded → our member was hit
@@ -945,6 +955,7 @@
                     case "faced": return r.faced;
                     case "hitback": return r.hitBack;
                     case "defended": return r.defended;
+                    case "own": return r.ownHits;
                     default: return r.warHits + r.outHits;
                 }
             };
@@ -966,8 +977,11 @@
             const tot = our.rows.reduce((acc, x) => {
                 acc.warHits += x.warHits; acc.outHits += x.outHits; acc.respect += x.respect;
                 acc.faced += x.faced; acc.hitBack += x.hitBack; acc.defended += x.defended;
+                acc.ownHits += x.ownHits; acc.ownHosps += x.ownHosps;
                 return acc;
-            }, { warHits: 0, outHits: 0, respect: 0, faced: 0, hitBack: 0, defended: 0 });
+            }, { warHits: 0, outHits: 0, respect: 0, faced: 0, hitBack: 0, defended: 0, ownHits: 0, ownHosps: 0 });
+            const own = (hits, hosps) =>
+                `${fmt.num(hits)}${hosps ? ` <span class="twr-sub">/ ${fmt.num(hosps)} hosp</span>` : ""}`;
 
             const arrow = (k) => this.sortBy === k ? (this.sortDir === "asc" ? " ▲" : " ▼") : "";
             const th = (k, label, hint) =>
@@ -983,6 +997,7 @@
                     <td>${fmt.num(x.faced)}</td>
                     <td>${fmt.num(x.hitBack)}</td>
                     <td>${fmt.num(x.defended)}</td>
+                    <td>${own(x.ownHits, x.ownHosps)}</td>
                 </tr>`).join("");
 
             const enemyRows = [...enemy.rows]
@@ -1015,6 +1030,7 @@
                         ${th("faced", "Attacked", "Times this member was attacked by the enemy")}
                         ${th("hitback", "Hit", "Times the enemy successfully hit this member")}
                         ${th("defended", "Defended", "Times this member fought off the attacker")}
+                        ${th("own", "Turtle", "Successful attacks on own faction members (turtling) / of those, hospitalizations")}
                     </tr></thead>
                     <tbody>${bodyRows}</tbody>
                     <tfoot><tr class="twr-total">
@@ -1026,6 +1042,7 @@
                         <td>${fmt.num(tot.faced)}</td>
                         <td>${fmt.num(tot.hitBack)}</td>
                         <td>${fmt.num(tot.defended)}</td>
+                        <td>${own(tot.ownHits, tot.ownHosps)}</td>
                     </tr></tfoot>
                 </table>
 

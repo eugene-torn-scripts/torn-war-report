@@ -6,6 +6,7 @@ A [Torn City](https://www.torn.com) userscript that builds a **per-member ranked
 - **Outside hits** — successful non-war attacks made during the war window
 - **Respect** gained
 - **Attacked / Hit / Defended** — how many times the enemy attacked that member, how many of those landed, and how many they fought off
+- **Turtle** — successful attacks on own faction members (turtling), and how many of those were hospitalizations
 
 Works on desktop browsers (Tampermonkey / Violentmonkey) and inside **Torn PDA**.
 
@@ -33,6 +34,7 @@ The numbers are cross-checked against Torn's official report: per-member war-hit
 | **Attacked** | Times the enemy attacked this member |
 | **Hit** | Times the enemy's attack landed (member was beaten) |
 | **Defended** | Times the member fought the attacker off |
+| **Turtle** | Successful attacks on **own faction** members during the war (turtling), with the hospitalization count. These attacks are not counted in Outside hits or Attacked / Hit / Defended |
 
 Click any column header to sort. A totals row sums the whole faction.
 
