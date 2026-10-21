@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn War Report
 // @namespace    https://github.com/eugene-torn-scripts/torn-war-report
-// @version      1.4.0
+// @version      1.5.0
 // @description  Per-member ranked-war report for your faction — war hits, outside hits, respect, own-faction (turtle) hits, and how many times each member was hit back. Pick any of your faction's finished wars.
 // @author       lannav
 // @match        https://www.torn.com/*
@@ -39,7 +39,7 @@
     //  CONSTANTS & CONFIG
     // ════════════════════════════════════════════════════════════
 
-    const VERSION = "1.4.0";
+    const VERSION = "1.5.0";
 
     const API_BASE = "https://api.torn.com/v2";
     // Pace requests well under Torn's 100/min ceiling. A full war is many
@@ -69,6 +69,7 @@
 
     const LS = {
         apiKey: "twr_apiKey",
+        turtleMinutes: "twr_turtleMinutes",
     };
 
     const IS_PDA = typeof PDA_httpGet === "function";
@@ -96,6 +97,58 @@
             return h > 0 ? `${h}h ${m}m` : `${m}m`;
         },
     };
+
+    function showToast(message, isError) {
+        document.getElementById("twr-toast")?.remove();
+        const toast = document.createElement("div");
+        toast.id = "twr-toast";
+        toast.style.background = isError ? "#c62828" : "#2e7d32";
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => { toast.style.opacity = "0"; }, 2500);
+        setTimeout(() => toast.remove(), 2900);
+    }
+
+    function copyTextToClipboard(text) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        let ok = false;
+        try { ok = document.execCommand("copy"); } catch { ok = false; }
+        ta.remove();
+        if (ok) return Promise.resolve();
+        if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+        return Promise.reject(new Error("clipboard unavailable"));
+    }
+
+    function downloadCSV(filename, headers, rows) {
+        if (IS_PDA) {
+            const tsvCell = (v) => String(v ?? "").replace(/[\t\r\n]+/g, " ");
+            const tsv = [headers, ...rows].map((r) => r.map(tsvCell).join("\t")).join("\n");
+            copyTextToClipboard(tsv)
+                .then(() => showToast(`Copied ${rows.length} rows to clipboard`))
+                .catch(() => showToast("Could not copy to clipboard", true));
+            return;
+        }
+        const escape = (v) => {
+            const s = String(v ?? "");
+            return s.includes(",") || s.includes('"') || s.includes("\n")
+                ? '"' + s.replace(/"/g, '""') + '"' : s;
+        };
+        const lines = [headers.map(escape).join(",")];
+        for (const row of rows) lines.push(row.map(escape).join(","));
+        const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -296,7 +349,7 @@
 
         // Reduce report + attack log into per-member rows for our side, plus
         // an enemy summary (report-only — their attack log isn't readable).
-        aggregate(report, attacks, ourFactionId) {
+        aggregate(report, attacks, ourFactionId, warStart) {
             const ourReport = (report.factions || []).find((f) => f.id === ourFactionId) || { members: [] };
             const enemyReport = (report.factions || []).find((f) => f.id !== ourFactionId) || { members: [] };
 
@@ -328,8 +381,10 @@
                 const win = WIN_RESULTS.has(a.result);
                 const atkOurs = !!(atk && atk.faction && atk.faction.id === ourFactionId);
                 const defOurs = !!(def && def.faction && def.faction.id === ourFactionId);
+                const preWar = warStart != null && a.started < warStart;
+                if (preWar && !(atkOurs && defOurs)) continue;
                 const item = {
-                    code: a.code, started: a.started, result: a.result, win,
+                    code: a.code, started: a.started, result: a.result, win, preWar,
                     war: !!a.is_ranked_war, respect: a.respect_gain || 0,
                     atk: atk ? { id: atk.id, name: atk.name } : null,
                     def: def ? { id: def.id, name: def.name } : null,
@@ -627,6 +682,10 @@
 .twr-auth .twr-err{color:#e08f8f;min-height:16px;font-size:12px}
 .twr-note{color:#888;font-size:11px;margin-top:12px;text-align:left;background:#141414;border:1px solid #2a2a2a;border-radius:4px;padding:10px}
 .twr-kk{color:#c0392b}
+.twr-sech-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.twr-sech-row .twr-btn{font-size:11px;padding:4px 10px}
+.twr-controls input[type=number]{width:60px;background:#141414;color:#ddd;border:1px solid #333;padding:5px 6px;border-radius:4px;margin:0 4px}
+#twr-toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);color:#fff;padding:8px 16px;border-radius:6px;font:13px system-ui,sans-serif;z-index:2147483647;transition:opacity 0.4s}
 #twr-body td.twr-click{cursor:pointer;text-decoration:underline dotted #666;text-underline-offset:3px}
 #twr-body td.twr-click:hover{color:#fff}
 #twr-body td.twr-open{background:#2c1a18;color:#fff}
@@ -653,6 +712,7 @@
             this.sortBy = "total";
             this.sortDir = "desc";
             this.detail = null;
+            this.turtleMinutes = Math.max(0, parseInt(localStorage.getItem(LS.turtleMinutes), 10) || 0);
             this._el = null;
             this._cooldownTimer = null;
         }
@@ -873,6 +933,11 @@
             body.innerHTML = `
                 <div class="twr-controls">
                     <select id="twr-war">${opts}</select>
+                    <label class="twr-sub" title="Count own-faction hits (turtling) from this many minutes before the war started">
+                        Turtle: include
+                        <input type="number" id="twr-turtle-min" min="0" max="1440" step="1" value="${this.turtleMinutes}">
+                        min before war
+                    </label>
                     <button class="twr-btn twr-primary" id="twr-gen" ${this.generating ? "disabled" : ""}>
                         ${this.generating ? "Fetching…" : "Generate report"}
                     </button>
@@ -888,6 +953,13 @@
             if (!this.selectedWarId && wars.length) this.selectedWarId = wars[0].id;
             sel.value = String(this.selectedWarId);
             sel.addEventListener("change", () => { this.selectedWarId = sel.value; });
+            const tm = body.querySelector("#twr-turtle-min");
+            tm.addEventListener("change", () => {
+                const v = Math.min(1440, Math.max(0, parseInt(tm.value, 10) || 0));
+                tm.value = String(v);
+                this.turtleMinutes = v;
+                localStorage.setItem(LS.turtleMinutes, String(v));
+            });
             body.querySelector("#twr-gen").addEventListener("click", () => this.generate());
 
             if (this.result) this._renderResult(body.querySelector("#twr-result"));
@@ -934,20 +1006,24 @@
                 const report = await this.svc.loadReport(war.id);
 
                 this._showProgress("Reading attack log…", 0, true);
-                const attacks = await this.svc.loadAttacks(war.start, war.end, (page, total) => {
+                const turtleMinutes = this.turtleMinutes;
+                const fetched = await this.svc.loadAttacks(war.start - turtleMinutes * 60, war.end, (page, total) => {
                     this._showProgress(
                         `Reading attack log — page <b>${page}</b>, <b>${fmt.num(total)}</b> attacks so far…`,
                         0, true);
                     this.setStatus(`Page ${page} · ${fmt.num(total)} attacks…`);
                 });
 
+                const attacks = fetched.filter((a) => a.started >= war.start);
                 if (attacks.length === 0) {
                     this.genError = "expired";
                     this.setStatus("No attack log for this war.");
                     return;
                 }
-                this.result = this.svc.aggregate(report, attacks, this.svc.ourFaction.id);
+                this.result = this.svc.aggregate(report, fetched, this.svc.ourFaction.id, war.start);
                 this.result._attackCount = attacks.length;
+                this.result._warId = war.id;
+                this.result._turtleMinutes = turtleMinutes;
                 this.result._elapsed = Math.round((Date.now() - t0) / 1000);
                 this.setStatus(`Done — ${fmt.num(attacks.length)} attacks in ${this.result._elapsed}s.`);
             } catch (e) {
@@ -990,6 +1066,18 @@
             });
         }
 
+        _exportCSV() {
+            const r = this.result;
+            if (!r) return;
+            const headers = ["Member", "ID", "Level", "War hits", "Outside hits", "Total hits", "Respect",
+                "Attacked", "Hit", "Defended", "Turtle hits", "Turtle hosps"];
+            const rows = this._sortRows(r.our.rows).map((x) => [
+                x.name, x.id, x.level || "", x.warHits, x.outHits, x.warHits + x.outHits,
+                Math.round(x.respect * 100) / 100, x.faced, x.hitBack, x.defended, x.ownHits, x.ownHosps,
+            ]);
+            downloadCSV(`war-report-${r._warId}.csv`, headers, rows);
+        }
+
         _detailList(x, k) {
             const L = x.lists;
             switch (k) {
@@ -1016,7 +1104,7 @@
                     <td>${who(a.atk)}</td>
                     <td>${who(a.def)}</td>
                     <td class="${a.win ? "twr-win" : "twr-loss"}">${escapeHtml(a.result)}</td>
-                    <td>${a.war ? "war" : "outside"}</td>
+                    <td>${a.preWar ? "pre-war" : a.war ? "war" : "outside"}</td>
                     <td>${a.respect ? a.respect.toFixed(2) : "—"}</td>
                     <td><a class="twr-a" href="https://www.torn.com/loader.php?sid=attackLog&ID=${encodeURIComponent(a.code)}" target="_blank">log</a></td>
                 </tr>`).join("");
@@ -1088,10 +1176,12 @@
                         &ndash; ${fmt.num(enemy.score)} ${escapeHtml(enemy.name)}</span>
                     <span class="twr-sub">${fmt.dateTime(r.start)} → ${fmt.dateTime(r.end)}
                         · ${fmt.dur(r.end - r.start)}${r.forfeit ? " · forfeit" : ""}
-                        · ${fmt.num(r._attackCount)} attacks read</span>
+                        · ${fmt.num(r._attackCount)} attacks read${r._turtleMinutes ? ` · turtle from ${r._turtleMinutes} min before` : ""}</span>
                 </div>
 
-                <div class="twr-sech">Your faction — per member</div>
+                <div class="twr-sech twr-sech-row">Your faction — per member
+                    <button class="twr-btn" id="twr-export">${IS_PDA ? "Copy table" : "Export CSV"}</button>
+                </div>
                 <table id="twr-our">
                     <thead><tr>
                         ${th("name", "Member")}
@@ -1130,6 +1220,8 @@
                     </tr></thead>
                     <tbody>${enemyRows}</tbody>
                 </table>`;
+
+            host.querySelector("#twr-export").addEventListener("click", () => this._exportCSV());
 
             host.querySelectorAll("#twr-our td.twr-click").forEach((td) => {
                 td.addEventListener("click", () => {

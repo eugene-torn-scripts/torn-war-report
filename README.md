@@ -38,6 +38,10 @@ The numbers are cross-checked against Torn's official report: per-member war-hit
 
 Click any column header to sort. A totals row sums the whole faction.
 
+**Export CSV** (above the table) saves the table in the current sort order. In Torn PDA the button is **Copy table** and copies the table to the clipboard as tab-separated text (paste into a spreadsheet).
+
+**Turtle: include N min before war** (next to Generate) widens the window for the Turtle column only. Factions often start to turtle just before the war, so the enemy can't hit them in the first minutes. Set N, then generate the report again. Pre-war attacks count only for Turtle and show as `pre-war` in the attack list.
+
 Click any non-zero number to open the list of attacks behind it (time, attacker, defender, result, war/outside, respect, and a link to the Torn attack log). Click the number again to close the list.
 
 ---
