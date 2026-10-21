@@ -38,6 +38,8 @@ The numbers are cross-checked against Torn's official report: per-member war-hit
 
 Click any column header to sort. A totals row sums the whole faction.
 
+Click any non-zero number to open the list of attacks behind it (time, attacker, defender, result, war/outside, respect, and a link to the Torn attack log). Click the number again to close the list.
+
 ---
 
 ## Requirements

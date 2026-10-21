@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn War Report
 // @namespace    https://github.com/eugene-torn-scripts/torn-war-report
-// @version      1.3.0
+// @version      1.4.0
 // @description  Per-member ranked-war report for your faction — war hits, outside hits, respect, own-faction (turtle) hits, and how many times each member was hit back. Pick any of your faction's finished wars.
 // @author       lannav
 // @match        https://www.torn.com/*
@@ -39,7 +39,7 @@
     //  CONSTANTS & CONFIG
     // ════════════════════════════════════════════════════════════
 
-    const VERSION = "1.3.0";
+    const VERSION = "1.4.0";
 
     const API_BASE = "https://api.torn.com/v2";
     // Pace requests well under Torn's 100/min ceiling. A full war is many
@@ -309,6 +309,7 @@
                         warHits: 0, warAtt: 0, outHits: 0, outAtt: 0, respect: 0,
                         faced: 0, hitBack: 0, defended: 0,
                         ownHits: 0, ownHosps: 0,
+                        lists: { war: [], outside: [], faced: [], own: [] },
                     };
                     rows.set(id, r);
                 }
@@ -327,11 +328,18 @@
                 const win = WIN_RESULTS.has(a.result);
                 const atkOurs = !!(atk && atk.faction && atk.faction.id === ourFactionId);
                 const defOurs = !!(def && def.faction && def.faction.id === ourFactionId);
+                const item = {
+                    code: a.code, started: a.started, result: a.result, win,
+                    war: !!a.is_ranked_war, respect: a.respect_gain || 0,
+                    atk: atk ? { id: atk.id, name: atk.name } : null,
+                    def: def ? { id: def.id, name: def.name } : null,
+                };
 
                 if (atkOurs && defOurs) {
                     const r = row(atk.id, atk.name, atk.level);
                     if (win) r.ownHits++;
                     if (a.result === "Hospitalized") r.ownHosps++;
+                    if (win) r.lists.own.push(item);
                     continue;
                 }
 
@@ -344,12 +352,14 @@
                         r.outAtt++;
                         if (win) r.outHits++;
                     }
+                    if (win) r.lists[a.is_ranked_war ? "war" : "outside"].push(item);
                     if (win && typeof a.respect_gain === "number") r.respect += a.respect_gain;
                 }
 
                 if (defOurs) {
                     const r = row(def.id, def.name, def.level);
                     r.faced++;
+                    r.lists.faced.push(item);
                     if (win) r.hitBack++;   // enemy attacker succeeded → our member was hit
                     else r.defended++;      // attacker failed → our member held
                 }
@@ -617,6 +627,17 @@
 .twr-auth .twr-err{color:#e08f8f;min-height:16px;font-size:12px}
 .twr-note{color:#888;font-size:11px;margin-top:12px;text-align:left;background:#141414;border:1px solid #2a2a2a;border-radius:4px;padding:10px}
 .twr-kk{color:#c0392b}
+#twr-body td.twr-click{cursor:pointer;text-decoration:underline dotted #666;text-underline-offset:3px}
+#twr-body td.twr-click:hover{color:#fff}
+#twr-body td.twr-open{background:#2c1a18;color:#fff}
+#twr-body tr.twr-detail>td{padding:0 0 10px 24px;background:#161616;text-align:left}
+#twr-body .twr-dt-wrap{max-height:320px;overflow:auto;margin-top:6px;display:inline-block;min-width:60%}
+#twr-body table.twr-dt{width:100%}
+#twr-body table.twr-dt th{position:static;cursor:default;background:#1e1e1e}
+#twr-body table.twr-dt td,#twr-body table.twr-dt th{text-align:left;padding:3px 10px}
+#twr-body a.twr-a{color:#8ab4f8;text-decoration:none}
+.twr-win{color:#8fe08f}
+.twr-loss{color:#e08f8f}
 `;
 
     class UI {
@@ -631,6 +652,7 @@
             this.generating = false;
             this.sortBy = "total";
             this.sortDir = "desc";
+            this.detail = null;
             this._el = null;
             this._cooldownTimer = null;
         }
@@ -830,7 +852,7 @@
                 KeyResolver.clear(); this.api.setKey(""); this.wars = null; this.render();
             });
             body.querySelector("#twr-key-remove").addEventListener("click", () => {
-                KeyResolver.clear(); this.api.setKey(""); this.wars = null; this.result = null;
+                KeyResolver.clear(); this.api.setKey(""); this.wars = null; this.result = null; this.detail = null;
                 this.setStatus("Key removed."); this.render();
             });
         }
@@ -902,6 +924,7 @@
             if (!war) return;
             this.generating = true;
             this.result = null;
+            this.detail = null;
             this.genError = null;
             this.render();
             const t0 = Date.now();
@@ -967,6 +990,48 @@
             });
         }
 
+        _detailList(x, k) {
+            const L = x.lists;
+            switch (k) {
+                case "war": return L.war;
+                case "outside": return L.outside;
+                case "total": return [...L.war, ...L.outside];
+                case "respect": return [...L.war, ...L.outside].filter((a) => a.respect > 0);
+                case "faced": return L.faced;
+                case "hitback": return L.faced.filter((a) => a.win);
+                case "defended": return L.faced.filter((a) => !a.win);
+                case "own": return L.own;
+                default: return [];
+            }
+        }
+
+        _renderDetail(x, k) {
+            const list = [...this._detailList(x, k)].sort((a, b) => a.started - b.started);
+            const who = (p) => p
+                ? `<a class="twr-a" href="https://www.torn.com/profiles.php?XID=${p.id}" target="_blank">${escapeHtml(p.name)}</a>`
+                : `<span class="twr-sub">someone</span>`;
+            const rows = list.map((a) => `
+                <tr>
+                    <td>${fmt.dateTime(a.started)}</td>
+                    <td>${who(a.atk)}</td>
+                    <td>${who(a.def)}</td>
+                    <td class="${a.win ? "twr-win" : "twr-loss"}">${escapeHtml(a.result)}</td>
+                    <td>${a.war ? "war" : "outside"}</td>
+                    <td>${a.respect ? a.respect.toFixed(2) : "—"}</td>
+                    <td><a class="twr-a" href="https://www.torn.com/loader.php?sid=attackLog&ID=${encodeURIComponent(a.code)}" target="_blank">log</a></td>
+                </tr>`).join("");
+            return `
+                <tr class="twr-detail"><td colspan="9"><div class="twr-dt-wrap">
+                    <table class="twr-dt">
+                        <thead><tr>
+                            <th>Time</th><th>Attacker</th><th>Defender</th><th>Result</th>
+                            <th>Type</th><th>Respect</th><th></th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div></td></tr>`;
+        }
+
         _renderResult(host) {
             const r = this.result;
             const our = r.our, enemy = r.enemy;
@@ -987,18 +1052,25 @@
             const th = (k, label, hint) =>
                 `<th data-sort="${k}" title="${hint || ""}">${label}${arrow(k)}</th>`;
 
+            const cell = (x, k, html) => {
+                const open = this.detail && this.detail.id === x.id && this.detail.key === k;
+                const n = this._detailList(x, k).length;
+                const cls = n ? `twr-click${open ? " twr-open" : ""}` : "";
+                return `<td class="${cls}" data-id="${x.id}" data-k="${k}">${html}</td>`;
+            };
+
             const bodyRows = rows.map((x) => `
                 <tr class="twr-row">
                     <td>${escapeHtml(x.name)} <span class="twr-sub">L${x.level || "?"}</span></td>
-                    <td>${fmt.num(x.warHits)}</td>
-                    <td>${fmt.num(x.outHits)}</td>
-                    <td>${fmt.num(x.warHits + x.outHits)}</td>
-                    <td>${fmt.respect(x.respect)}</td>
-                    <td>${fmt.num(x.faced)}</td>
-                    <td>${fmt.num(x.hitBack)}</td>
-                    <td>${fmt.num(x.defended)}</td>
-                    <td>${own(x.ownHits, x.ownHosps)}</td>
-                </tr>`).join("");
+                    ${cell(x, "war", fmt.num(x.warHits))}
+                    ${cell(x, "outside", fmt.num(x.outHits))}
+                    ${cell(x, "total", fmt.num(x.warHits + x.outHits))}
+                    ${cell(x, "respect", fmt.respect(x.respect))}
+                    ${cell(x, "faced", fmt.num(x.faced))}
+                    ${cell(x, "hitback", fmt.num(x.hitBack))}
+                    ${cell(x, "defended", fmt.num(x.defended))}
+                    ${cell(x, "own", own(x.ownHits, x.ownHosps))}
+                </tr>${this.detail && this.detail.id === x.id ? this._renderDetail(x, this.detail.key) : ""}`).join("");
 
             const enemyRows = [...enemy.rows]
                 .sort((a, b) => (b.attacks || 0) - (a.attacks || 0))
@@ -1058,6 +1130,15 @@
                     </tr></thead>
                     <tbody>${enemyRows}</tbody>
                 </table>`;
+
+            host.querySelectorAll("#twr-our td.twr-click").forEach((td) => {
+                td.addEventListener("click", () => {
+                    const id = Number(td.dataset.id), k = td.dataset.k;
+                    const same = this.detail && this.detail.id === id && this.detail.key === k;
+                    this.detail = same ? null : { id, key: k };
+                    this._renderResult(host);
+                });
+            });
 
             host.querySelectorAll("#twr-our th[data-sort]").forEach((thEl) => {
                 thEl.addEventListener("click", () => {
